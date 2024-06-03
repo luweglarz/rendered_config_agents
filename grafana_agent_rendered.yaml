@@ -1,0 +1,291 @@
+# Source: pyroscope/templates/configmap-agent.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-agent-config-pyroscope
+  namespace: uniping
+  labels:
+    helm.sh/chart: pyroscope-1.5.1
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/instance: pyroscope-dev
+    app.kubernetes.io/version: "1.5.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  config.river: |
+    logging {
+      level  = "info"
+      format = "logfmt"
+    }
+
+    pyroscope.write "pyroscope_write" {
+      endpoint {
+        url = "http://pyroscope-dev.uniping.svc.cluster.local:4040"
+      }
+    }
+
+    pyroscope.scrape "profile_go_app" {
+      targets = [
+          {"__address__" = "maestro-yaml-worker.maestro-des.svc.cluster.local:9089", "service_name"="go-resource-consuming"},
+        ]
+      forward_to = [pyroscope.write.pyroscope_write.receiver]
+
+      profiling_config {
+        profile.memory {
+          enabled = true
+          path = "/debug/pprof/heap"
+        }
+
+        profile.process_cpu {
+          enabled = true
+          path = "/debug/pprof/profile"
+        }
+
+        profile.goroutine {
+          enabled = true
+          path = "/debug/pprof/goroutine"
+        }
+
+        profile.block {
+          enabled = false
+        }
+
+        profile.mutex {
+          enabled = false
+        }
+
+        profile.fgprof {
+          enabled = false
+        }
+      }
+    }
+---
+# Source: pyroscope/templates/configmap-overrides.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pyroscope-dev-overrides-config
+  namespace: uniping
+  labels:
+    helm.sh/chart: pyroscope-1.5.1
+    app.kubernetes.io/name: pyroscope
+    app.kubernetes.io/instance: pyroscope-dev
+    app.kubernetes.io/version: "1.5.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  overrides.yaml: |
+    overrides:
+      {}
+# ---
+# # Source: pyroscope/charts/agent/templates/rbac.yaml
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: ClusterRole
+# metadata:
+#   name: pyroscope-dev-agent
+#   labels:
+#     helm.sh/chart: agent-0.25.0
+#     app.kubernetes.io/name: agent
+#     app.kubernetes.io/instance: pyroscope-dev
+#     app.kubernetes.io/version: "v0.36.2"
+#     app.kubernetes.io/managed-by: Helm
+# rules:
+#   # Rules which allow discovery.kubernetes to function.
+#   - apiGroups:
+#       - ""
+#       - "discovery.k8s.io"
+#       - "networking.k8s.io"
+#     resources:
+#       - endpoints
+#       - endpointslices
+#       - ingresses
+#       - nodes
+#       - nodes/proxy
+#       - nodes/metrics
+#       - pods
+#       - services
+#     verbs:
+#       - get
+#       - list
+#       - watch
+  # Rules which allow loki.source.kubernetes and loki.source.podlogs to work.
+  # - apiGroups:
+  #     - ""
+  #   resources:
+  #     - pods
+  #     - pods/log
+  #     - namespaces
+  #   verbs:
+  #     - get
+  #     - list
+  #     - watch
+  # - apiGroups:
+  #     - "monitoring.grafana.com"
+  #   resources:
+  #     - podlogs
+  #   verbs:
+  #     - get
+  #     - list
+  #     - watch
+  # # Rules which allow mimir.rules.kubernetes to work.
+  # - apiGroups: ["monitoring.coreos.com"]
+  #   resources:
+  #     - prometheusrules
+  #   verbs:
+  #     - get
+  #     - list
+  #     - watch
+  # - nonResourceURLs:
+  #     - /metrics
+  #   verbs:
+  #     - get
+  # # Rules for prometheus.kubernetes.*
+  # - apiGroups: ["monitoring.coreos.com"]
+  #   resources:
+  #     - podmonitors
+  #     - servicemonitors
+  #     - probes
+  #   verbs:
+  #     - get
+  #     - list
+  #     - watch
+  # Rules which allow eventhandler to work.
+  # - apiGroups:
+  #     - ""
+  #   resources:
+  #     - events
+  #   verbs:
+  #     - get
+  #     - list
+  #     - watch
+---
+# Source: pyroscope/charts/agent/templates/cluster_service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope-dev-agent-cluster
+  labels:
+    helm.sh/chart: agent-0.25.0
+    app.kubernetes.io/name: agent
+    app.kubernetes.io/instance: pyroscope-dev
+    app.kubernetes.io/version: "v0.36.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  clusterIP: 'None'
+  selector:
+    app.kubernetes.io/name: agent
+    app.kubernetes.io/instance: pyroscope-dev
+  ports:
+    # Do not include the -metrics suffix in the port name, otherwise metrics
+    # can be double-collected with the non-headless Service if it's also
+    # enabled.
+    #
+    # This service should only be used for clustering, and not metric
+    # collection.
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: "TCP"
+---
+# Source: pyroscope/charts/agent/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope-dev-agent
+  labels:
+    helm.sh/chart: agent-0.25.0
+    app.kubernetes.io/name: agent
+    app.kubernetes.io/instance: pyroscope-dev
+    app.kubernetes.io/version: "v0.36.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: agent
+    app.kubernetes.io/instance: pyroscope-dev
+  ports:
+    - name: http-metrics
+      port: 80
+      targetPort: 80
+      protocol: "TCP"
+---
+# Source: pyroscope/charts/agent/templates/controllers/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pyroscope-dev-agent
+  labels:
+    helm.sh/chart: agent-0.25.0
+    app.kubernetes.io/name: agent
+    app.kubernetes.io/instance: pyroscope-dev
+    app.kubernetes.io/version: "v0.36.2"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  podManagementPolicy: Parallel
+  minReadySeconds: 10
+  serviceName: pyroscope-dev-agent
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent
+      app.kubernetes.io/instance: pyroscope-dev
+  template:
+    metadata:
+      annotations:
+        profiles.grafana.com/cpu.port_name: http-metrics
+        profiles.grafana.com/cpu.scrape: "true"
+        profiles.grafana.com/goroutine.port_name: http-metrics
+        profiles.grafana.com/goroutine.scrape: "true"
+        profiles.grafana.com/memory.port_name: http-metrics
+        profiles.grafana.com/memory.scrape: "true"
+      labels:
+        app.kubernetes.io/name: agent
+        app.kubernetes.io/instance: pyroscope-dev
+    spec:
+      serviceAccountName: ruup-operator
+      containers:
+        - name: grafana-agent
+          image: docker.io/grafana/agent:v0.36.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - run
+            - /etc/agent/config.river
+            - --storage.path=/tmp/agent
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --cluster.enabled=true
+            - --cluster.join-addresses=pyroscope-dev-agent-cluster
+          env:
+            - name: AGENT_MODE
+              value: flow
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - containerPort: 80
+              name: http-metrics
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 12345
+            initialDelaySeconds: 10
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agent
+        - name: config-reloader
+          image: docker.io/jimmidyson/configmap-reload:v0.8.0
+          args:
+            - --volume-dir=/etc/agent
+            - --webhook-url=http://0.0.0.0:80/-/reload
+          volumeMounts:
+            - name: config
+              mountPath: /etc/agent
+          resources:
+            requests:
+              cpu: 1m
+              memory: 5Mi
+      dnsPolicy: ClusterFirst
+      volumes:
+        - name: config
+          configMap:
+            name: grafana-agent-config-pyroscope
